@@ -84,9 +84,16 @@ router.post("/signin", async (req, res) => {
   }
 });
 
-router.get("/elements", (req, res) => {});
+// get available elements
+router.get("/elements", async (req, res) => {
+  const elements = await client.element.findMany({});
+  res.status(200).json({ elements });
+});
 
-router.get("/avatar", (req, res) => {});
+router.get("/avatar", async (req, res) => {
+  const avatars = await client.avatar.findMany({});
+  res.status(200).json({ avatars });
+});
 
 router.use("/user", userRouter);
 router.use("/space", spaceRouter);
