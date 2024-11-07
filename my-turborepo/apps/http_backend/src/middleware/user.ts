@@ -14,6 +14,8 @@ export const userMiddleware = (
     return;
   }
   try {
+    console.log("Token");
+    console.log(token);
     const decode = jwt.verify(token, JWT_PASSWORD) as {
       role: string;
       userId: string;
@@ -22,6 +24,7 @@ export const userMiddleware = (
     req.userId = decode.userId;
     next();
   } catch (e) {
+    console.log("Inside catch of user middleware");
     res.status(403).json({ message: "Unauthorized" });
     return;
   }

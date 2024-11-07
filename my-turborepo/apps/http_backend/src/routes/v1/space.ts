@@ -11,95 +11,116 @@ export const spaceRouter = Router();
 
 //create a space
 spaceRouter.post("/", userMiddleware, async (req, res) => {
+  console.log("Inside create Space");
   const parsedData = CreateSpaceSchema.safeParse(req.body);
   if (!parsedData.success) {
     res.status(400).json({ message: "Validation failed" });
     return;
   }
-  if (!parsedData.data.mapId) {
-    const space = await client.space.create({
-      data: {
-        name: parsedData?.data?.name ?? "",
-        width: parseInt(parsedData.data.dimensions.split("x")[0]),
-        height: parseInt(parsedData.data.dimensions.split("x")[1]) ?? 0,
-        creatorId: req.userId!,
+  try {
+    console.log("Inside try block");
+
+    if (!parsedData.data.mapId) {
+      const space = await client.space.create({
+        data: {
+          name: parsedData?.data?.name ?? "",
+          width: parseInt(parsedData.data.dimensions.split("x")[0]),
+          height: parseInt(parsedData.data.dimensions.split("x")[1]) ?? 0,
+          creatorId: req.userId!,
+        },
+      });
+      res.status(200).json({ spaceId: space.id });
+      return;
+    }
+    console.log("Empty space created");
+
+    const map = await client.map.findFirst({
+      where: {
+        id: parsedData.data.mapId,
       },
+      select: {
+        mapElements: true,
+        width: true,
+        height: true,
+        thumbnail: true,
+      },
+    });
+    if (!map) {
+      res.status(400).json({ message: "map does not exist" });
+      return;
+    }
+    console.log(map);
+    console.log("Before transaction");
+    let space = await client.$transaction(async () => {
+      const space = await client.space.create({
+        data: {
+          name: parsedData.data.name,
+          width: map.width,
+          height: map.height,
+          thumbnail: map.thumbnail,
+          creatorId: req.userId ?? "",
+        },
+      });
+      console.log("Space created");
+
+      await client.spaceElements.createMany({
+        data: map.mapElements.map((m) => ({
+          elementId: m.elementId,
+          spaceId: space.id,
+          x: m.x!,
+          y: m.y!,
+        })),
+      });
+      console.log("Space element created");
+      return space;
     });
     res.status(200).json({ spaceId: space.id });
     return;
+  } catch (e) {
+    res.status(400).json({ message: "Error while space creating" });
   }
-
-  const map = await client.map.findFirst({
-    where: {
-      id: parsedData.data.mapId,
-    },
-    select: {
-      mapElements: true,
-      width: true,
-      height: true,
-      thumbnail: true,
-    },
-  });
-  if (!map) {
-    res.status(400).json({ message: "map does not exist" });
-    return;
-  }
-  console.log(map);
-  let space = await client.$transaction(async () => {
-    const space = await client.space.create({
-      data: {
-        name: parsedData.data.name,
-        width: map.width,
-        height: map.height,
-        thumbnail: map.thumbnail,
-        creatorId: req.userId!,
-      },
-    });
-
-    await client.spaceElements.createMany({
-      data: map.mapElements.map((m) => ({
-        elementId: m.elementId,
-        spaceId: space.id,
-        x: m.x!,
-        y: m.y!,
-      })),
-    });
-    return space;
-  });
-  console.log("Space created"), res.status(200).json({ spaceId: space.id });
-  return;
 });
 
 //Delete a space Element
 spaceRouter.delete("/element", userMiddleware, async (req, res) => {
-  const parsedData = DeleteElementSchema.safeParse(req.body);
-  if (!parsedData.success) {
-    res.status(400).json({ message: "Validation failed" });
-    return;
-  }
+  try {
+    console.log("Inside Element delete");
+    const parsedData = DeleteElementSchema.safeParse(req.body);
+    if (!parsedData.success) {
+      res.status(400).json({ message: "Validation failed" });
+      return;
+    }
 
-  const spaceElement = await client.spaceElements.findFirst({
-    where: {
-      id: parsedData.data.id,
-    },
-    include: {
-      space: true,
-    },
-  });
-  if (
-    !spaceElement?.space.creatorId ||
-    spaceElement.space.creatorId !== req.userId
-  ) {
-    res.status(403).json({ message: "Unauthnticated user" });
-    return;
-  }
+    const spaceElement = await client.spaceElements.findUnique({
+      where: {
+        id: parsedData.data.id,
+      },
+      include: {
+        space: true,
+      },
+    });
+    if (!spaceElement) {
+      res.status(400).json({ message: "Element nnot existed" });
+      return;
+    }
+    console.log(spaceElement.space.creatorId);
+    console.log(req.userId);
+    if (spaceElement.space.creatorId !== req.userId) {
+      console.log("Here");
+      res.status(403).json({ message: "Unauthnticated user" });
+      return;
+    }
 
-  await client.spaceElements.delete({
-    where: {
-      id: parsedData.data.id,
-    },
-  });
-  res.status(200).json({ mesage: "Element deleted" });
+    await client.spaceElements.delete({
+      where: {
+        id: parsedData.data.id,
+      },
+    });
+    res.status(200).json({ mesage: "Element deleted" });
+    return;
+  } catch (e) {
+    res.status(400).json({ message: "Error while deleting an element" });
+  }
 });
 
 //delete a Space
@@ -157,34 +178,49 @@ spaceRouter.get("/all", userMiddleware, async (req, res) => {
 
 //Add an element
 spaceRouter.post("/element", userMiddleware, async (req, res) => {
-  const parsedData = AddAnElementSchema.safeParse(req.body);
-  if (!parsedData.success) {
-    res.status(400).json({ message: "Validation failed" });
+  try {
+    console.log("Inside element");
+    const parsedData = AddAnElementSchema.safeParse(req.body);
+    if (!parsedData.success) {
+      res.status(400).json({ message: "Validation failed" });
+      return;
+    }
+    const space = await client.space.findUnique({
+      where: {
+        id: parsedData.data.spaceId,
+        creatorId: req.userId,
+      },
+      select: {
+        width: true,
+        height: true,
+      },
+    });
+    if (!space) {
+      res.status(400).json({ message: "Space not found" });
+      return;
+    }
+    if (
+      parseInt(parsedData.data.x) > space.width ||
+      parseInt(parsedData.data.y) > space.height
+    ) {
+      console.log("Element is out of boundary");
+      res.status(400).json({ message: "Element is out of boundary" });
+      return;
+    }
+    await client.spaceElements.create({
+      data: {
+        elementId: parsedData.data.elementId,
+        spaceId: parsedData.data.spaceId,
+        x: parseInt(parsedData.data.x),
+        y: parseInt(parsedData.data.y),
+      },
+    });
+    res.status(200).json({ message: "Element added" });
+    return;
+  } catch (e) {
+    res.status(400).json({ message: "Error while adding Space elements" });
     return;
   }
-  const space = await client.space.findUnique({
-    where: {
-      id: req.body.spaceId,
-      creatorId: req.userId,
-    },
-    select: {
-      width: true,
-      height: true,
-    },
-  });
-  if (!space) {
-    res.status(400).json({ message: "Space not found" });
-    return;
-  }
-  await client.spaceElements.create({
-    data: {
-      elementId: parsedData.data.elementId,
-      spaceId: parsedData.data.spaceId,
-      x: parseInt(parsedData.data.x),
-      y: parseInt(parsedData.data.y),
-    },
-  });
-  res.status(200).json({ message: "Element added" });
 });
 
 //get a specific space

@@ -76,7 +76,7 @@ adminRouter.post("/avatar", adminMiddleware, async (req, res) => {
         name: parsedData.data.name,
       },
     });
-    res.status(400).json({
+    res.status(200).json({
       avatarId: avatar.id,
     });
   } catch (e) {
@@ -87,6 +87,7 @@ adminRouter.post("/avatar", adminMiddleware, async (req, res) => {
 //create a map
 adminRouter.post("/map", adminMiddleware, async (req, res) => {
   try {
+    console.log("Inside map try block");
     const parsedData = CreateAMapSchema.safeParse(req.body);
     if (!parsedData.success) {
       res.status(400).json({ message: "Validation Failed" });
